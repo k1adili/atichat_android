@@ -13,8 +13,8 @@ android {
         applicationId = "com.k1adili.atichat"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     // Fixed personal key so every CI build can be installed over the previous one (a fresh debug key per
