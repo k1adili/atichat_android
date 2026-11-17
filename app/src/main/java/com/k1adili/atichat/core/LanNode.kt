@@ -219,7 +219,7 @@ class LanNode(
     }
 
     private fun requirePeer(peerId: String): Peer =
-        synchronized(peersLock) { peers[peerId] } ?: throw IllegalStateException("این کاربر دیگر برخط نیست.")
+        synchronized(peersLock) { peers[peerId] } ?: throw IllegalStateException("این کاربر دیگر آنلاین نیست.")
 
     private fun enqueue(peer: Peer, packet: Map<String, Any?>, open: (() -> InputStream)?) {
         if (stopped.get()) throw IllegalStateException("شبکه متوقف شده است.")

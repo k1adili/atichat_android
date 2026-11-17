@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.k1adili.atichat.core.Jalali
 import com.k1adili.atichat.core.Peer
 import com.k1adili.atichat.core.Protocol
 import com.k1adili.atichat.data.ChatEngine
@@ -11,9 +12,12 @@ import com.k1adili.atichat.data.MessageEntity
 import com.k1adili.atichat.data.ProfileEntity
 import com.k1adili.atichat.util.AvatarEncoder
 import com.k1adili.atichat.util.PickedFile
+import com.k1adili.atichat.util.ReceivedFiles
+import com.k1adili.atichat.util.ThemeMode
+import com.k1adili.atichat.util.UiPrefs
 import com.k1adili.atichat.util.UriFile
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -27,6 +31,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneId
 
 sealed interface Route {
     data object Home : Route
@@ -35,7 +41,13 @@ sealed interface Route {
     data class Chat(val peerId: String?, val title: String) : Route
 
     data object Settings : Route
+
+    /** Choosing who receives something shared into AtiChat from another app. */
+    data object SharePicker : Route
 }
+
+/** Files and/or text another app shared into AtiChat. */
+data class SharePayload(val uris: List<Uri>, val text: String?)
 
 data class ChatRow(
     val key: String,
@@ -44,6 +56,8 @@ data class ChatRow(
     val avatar: String,
     val online: Boolean,
     val unread: Int,
+    val preview: String,
+    val time: String,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,6 +69,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toasts: SharedFlow<String> = _toasts.asSharedFlow()
+
+    private val _themeMode = MutableStateFlow(UiPrefs.loadTheme(application))
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _pendingShare = MutableStateFlow<SharePayload?>(null)
+    val pendingShare: StateFlow<SharePayload?> = _pendingShare.asStateFlow()
 
     val profile: StateFlow<ProfileEntity?> =
         engine.profile.stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -69,17 +89,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (p == null) flowOf(emptyList()) else engine.observeContacts(p.userId)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val lastMessages = profile.flatMapLatest { p ->
+        if (p == null) flowOf(emptyList()) else engine.observeLastMessages(p.userId)
+    }
+
     /** Public chat first, then online users, then offline contacts that have history. */
     val chatRows: StateFlow<List<ChatRow>> =
-        combine(engine.peers, contacts, engine.unread) { online, history, unread ->
+        combine(engine.peers, contacts, engine.unread, lastMessages) { online, history, unread, last ->
+            val previews = last.associateBy { m ->
+                if (m.kind == "public") ChatEngine.PUBLIC_KEY else if (m.outgoing) m.recipientId else m.senderId
+            }
+            fun preview(key: String) = previews[key]?.let { previewOf(it) } ?: ""
+            fun time(key: String) = previews[key]?.let { timeLabel(it.timestamp) } ?: ""
+
             val onlineRows = online.values.sortedBy { it.username }.map {
-                ChatRow(it.userId, it.userId, it.username, it.avatar, true, unread[it.userId] ?: 0)
+                ChatRow(it.userId, it.userId, it.username, it.avatar, true, unread[it.userId] ?: 0, preview(it.userId), time(it.userId))
             }
             val offlineRows = history.filter { it.userId !in online }.map {
-                ChatRow(it.userId, it.userId, it.username, "", false, unread[it.userId] ?: 0)
+                ChatRow(it.userId, it.userId, it.username, "", false, unread[it.userId] ?: 0, preview(it.userId), time(it.userId))
             }
             listOf(
-                ChatRow(ChatEngine.PUBLIC_KEY, null, "گفتگوی عمومی", "", true, unread[ChatEngine.PUBLIC_KEY] ?: 0),
+                ChatRow(
+                    ChatEngine.PUBLIC_KEY, null, "گفتگوی عمومی", "", true,
+                    unread[ChatEngine.PUBLIC_KEY] ?: 0, preview(ChatEngine.PUBLIC_KEY), time(ChatEngine.PUBLIC_KEY),
+                ),
             ) + onlineRows + offlineRows
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -90,6 +124,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (route is Route.Chat && p != null) engine.observeMessages(route.peerId, p.userId) else flowOf(emptyList())
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private fun previewOf(m: MessageEntity): String {
+        val text = when {
+            m.kind == "file" && ReceivedFiles.isImage(m.body) -> "تصویر"
+            m.kind == "file" -> "فایل: ${m.body}"
+            else -> m.body.replace('\n', ' ')
+        }
+        return when {
+            m.outgoing -> "شما: $text"
+            m.kind == "public" -> "${m.senderName}: $text"
+            else -> text
+        }
+    }
+
+    private fun timeLabel(timestamp: String): String {
+        val instant = Protocol.parseTimestamp(timestamp)
+        val zone = ZoneId.systemDefault()
+        return if (instant.atZone(zone).toLocalDate() == LocalDate.now(zone)) Jalali.formatTime(instant, zone)
+        else Jalali.formatDate(instant, zone)
+    }
 
     // ------------------------------------------------------------------------------------ navigation
 
@@ -111,7 +165,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun back() {
         engine.activeChat = null
+        if (_route.value is Route.SharePicker) _pendingShare.value = null
         _route.value = Route.Home
+    }
+
+    // ------------------------------------------------------------------------------------ theme
+
+    fun setThemeMode(mode: ThemeMode) {
+        _themeMode.value = mode
+        UiPrefs.saveTheme(app, mode)
+    }
+
+    // ------------------------------------------------------------------------------------ sharing into AtiChat
+
+    fun startShare(uris: List<Uri>, text: String?) {
+        if (uris.isEmpty() && text.isNullOrBlank()) return
+        engine.activeChat = null
+        _pendingShare.value = SharePayload(uris, text)
+        _route.value = Route.SharePicker
+    }
+
+    fun sendShared(peerId: String?, title: String) {
+        val payload = _pendingShare.value ?: return
+        _pendingShare.value = null
+        openChat(peerId, title)
+        viewModelScope.launch {
+            try {
+                payload.text?.trim()?.takeIf { it.isNotEmpty() }?.let { body ->
+                    if (body.codePointCount(0, body.length) > Protocol.MAX_MESSAGE_LENGTH) {
+                        toast("متن خیلی طولانی است؛ حداکثر ${Protocol.MAX_MESSAGE_LENGTH} نویسه.")
+                    } else if (peerId == null) {
+                        engine.sendPublic(body)
+                    } else {
+                        engine.sendDirect(peerId, body)
+                    }
+                }
+                if (peerId != null) {
+                    for (uri in payload.uris) {
+                        val file = resolveFile(uri) ?: continue
+                        engine.sendFile(peerId, file, "")
+                    }
+                }
+            } catch (error: Exception) {
+                toast(error.message ?: "ارسال ناموفق بود.")
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------ actions
@@ -220,7 +318,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val count = engine.importBackup(uri)
-                toast("پشتیبان بازیابی شد (${count} پیام).")
+                toast("پشتیبان بازیابی شد ($count پیام).")
             } catch (error: Exception) {
                 toast("این فایل پشتیبان معتبر AtiChat نیست.")
             }

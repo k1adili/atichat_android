@@ -2,7 +2,6 @@
 
 package com.k1adili.atichat.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -124,10 +123,13 @@ private val AtiShapes = Shapes(
     large = RoundedCornerShape(20.dp),
 )
 
+/** Success green used for "online" indicators; readable on both light and dark surfaces. */
+val OnlineGreen = Color(0xFF2E9D5B)
+
 @Composable
-fun AtiChatTheme(content: @Composable () -> Unit) {
+fun AtiChatTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = AtiTypography,
         shapes = AtiShapes,
     ) {

@@ -106,6 +106,18 @@ interface ChatDao {
     )
     fun observeContacts(me: String): Flow<List<ContactRow>>
 
+    /** The newest message of every conversation (public chat counts as one), for the chat list previews. */
+    @Query(
+        """
+        SELECT * FROM messages WHERE id IN (
+            SELECT MAX(id) FROM messages
+            WHERE kind IN ('public', 'private', 'file')
+            GROUP BY CASE WHEN kind = 'public' THEN 'public' WHEN senderId = :me THEN recipientId ELSE senderId END
+        )
+        """,
+    )
+    fun observeLastMessages(me: String): Flow<List<MessageEntity>>
+
     @Query("SELECT * FROM messages ORDER BY id ASC")
     suspend fun allMessages(): List<MessageEntity>
 }

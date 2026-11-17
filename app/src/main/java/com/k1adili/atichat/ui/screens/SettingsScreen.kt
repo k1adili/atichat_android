@@ -13,8 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,7 +20,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -41,8 +38,11 @@ import androidx.compose.ui.unit.dp
 import com.k1adili.atichat.BuildConfig
 import com.k1adili.atichat.core.Protocol
 import com.k1adili.atichat.data.ProfileEntity
+import com.k1adili.atichat.ui.components.ActionButton
 import com.k1adili.atichat.ui.components.Avatar
+import com.k1adili.atichat.ui.components.ButtonKind
 import com.k1adili.atichat.ui.theme.Spacing
+import com.k1adili.atichat.util.ThemeMode
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -50,6 +50,8 @@ import java.time.LocalDate
 @Composable
 fun SettingsScreen(
     profile: ProfileEntity,
+    themeMode: ThemeMode,
+    onThemeMode: (ThemeMode) -> Unit,
     onBack: () -> Unit,
     encodeAvatar: suspend (Uri) -> String?,
     onSaveProfile: (name: String, avatar: String) -> Unit,
@@ -90,18 +92,8 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
             SectionCard("نمایه") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.lg)) {
-                    Avatar(encoded = avatar, name = name, size = 72.dp)
-                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.weight(1f)) {
-                        OutlinedButton(onClick = { avatarPicker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
-                            Text("انتخاب تصویر", maxLines = 1)
-                        }
-                        if (avatar.isNotEmpty()) {
-                            TextButton(onClick = { avatar = "" }, modifier = Modifier.fillMaxWidth()) {
-                                Text("حذف تصویر", maxLines = 1)
-                            }
-                        }
-                    }
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Avatar(encoded = avatar, name = name, size = 88.dp)
                 }
                 OutlinedTextField(
                     value = name,
@@ -110,8 +102,16 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(onClick = { onSaveProfile(name, avatar) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("ذخیرهٔ نمایه", maxLines = 1)
+                ActionButton("انتخاب تصویر", onClick = { avatarPicker.launch("image/*") })
+                if (avatar.isNotEmpty()) ActionButton("حذف تصویر", onClick = { avatar = "" })
+                ActionButton("ذخیرهٔ نمایه", onClick = { onSaveProfile(name, avatar) }, kind = ButtonKind.Primary)
+            }
+
+            SectionCard("ظاهر برنامه") {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+                    ThemeChoice("خودکار", ThemeMode.SYSTEM, themeMode, onThemeMode, Modifier.weight(1f))
+                    ThemeChoice("روشن", ThemeMode.LIGHT, themeMode, onThemeMode, Modifier.weight(1f))
+                    ThemeChoice("شب", ThemeMode.DARK, themeMode, onThemeMode, Modifier.weight(1f))
                 }
             }
 
@@ -121,37 +121,14 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { exportLauncher.launch("atichat-backup-${LocalDate.now()}.json") },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("ذخیرهٔ پشتیبان", maxLines = 1) }
-                    OutlinedButton(
-                        onClick = { importLauncher.launch(arrayOf("*/*")) },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("بازیابی پشتیبان", maxLines = 1) }
-                }
+                ActionButton("ذخیرهٔ پشتیبان", onClick = { exportLauncher.launch("atichat-backup-${LocalDate.now()}.json") })
+                ActionButton("بازیابی پشتیبان", onClick = { importLauncher.launch(arrayOf("*/*")) })
             }
 
             SectionCard("شبکه و تاریخچه") {
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = onRefreshUsers, modifier = Modifier.weight(1f)) {
-                        Text("به‌روزرسانی کاربران", maxLines = 1)
-                    }
-                    OutlinedButton(
-                        onClick = { confirmClear = true },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) { Text("پاک‌کردن تاریخچه", maxLines = 1) }
-                }
-                Button(
-                    onClick = onExit,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    ),
-                ) { Text("خروج کامل (آفلاین شدن)", maxLines = 1) }
+                ActionButton("به‌روزرسانی کاربران", onClick = onRefreshUsers)
+                ActionButton("پاک‌کردن همهٔ تاریخچه", onClick = { confirmClear = true }, kind = ButtonKind.Danger)
+                ActionButton("خروج کامل (آفلاین شدن)", onClick = onExit, kind = ButtonKind.Danger)
             }
 
             HorizontalDivider()
@@ -195,6 +172,22 @@ fun SettingsScreen(
             dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("لغو", maxLines = 1) } },
         )
     }
+}
+
+@Composable
+private fun ThemeChoice(
+    label: String,
+    mode: ThemeMode,
+    current: ThemeMode,
+    onSelect: (ThemeMode) -> Unit,
+    modifier: Modifier,
+) {
+    ActionButton(
+        text = label,
+        onClick = { onSelect(mode) },
+        modifier = modifier,
+        kind = if (mode == current) ButtonKind.Primary else ButtonKind.Secondary,
+    )
 }
 
 @Composable

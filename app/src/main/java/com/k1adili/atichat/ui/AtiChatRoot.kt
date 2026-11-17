@@ -14,9 +14,11 @@ import com.k1adili.atichat.Route
 import com.k1adili.atichat.ui.screens.ChatListScreen
 import com.k1adili.atichat.ui.screens.ChatScreen
 import com.k1adili.atichat.ui.screens.SettingsScreen
+import com.k1adili.atichat.ui.screens.SharePickerScreen
+import com.k1adili.atichat.util.ThemeMode
 
 @Composable
-fun AtiChatRoot(viewModel: MainViewModel, onExit: () -> Unit) {
+fun AtiChatRoot(viewModel: MainViewModel, darkTheme: Boolean, onExit: () -> Unit) {
     val context = LocalContext.current
     val route by viewModel.route.collectAsStateWithLifecycle()
     val rows by viewModel.chatRows.collectAsStateWithLifecycle()
@@ -26,6 +28,8 @@ fun AtiChatRoot(viewModel: MainViewModel, onExit: () -> Unit) {
     val running by viewModel.running.collectAsStateWithLifecycle()
     val typingPeer by viewModel.typingPeer.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val pendingShare by viewModel.pendingShare.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.toasts.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
@@ -35,11 +39,14 @@ fun AtiChatRoot(viewModel: MainViewModel, onExit: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.background) {
         when (val current = route) {
             Route.Home -> ChatListScreen(
+                profile = profile,
                 rows = rows,
                 status = status,
                 running = running,
+                darkTheme = darkTheme,
                 onOpen = { row -> viewModel.openChat(row.peerId, row.name) },
                 onRefresh = viewModel::refreshUsers,
+                onToggleTheme = { viewModel.setThemeMode(if (darkTheme) ThemeMode.LIGHT else ThemeMode.DARK) },
                 onSettings = viewModel::openSettings,
             )
 
@@ -67,6 +74,8 @@ fun AtiChatRoot(viewModel: MainViewModel, onExit: () -> Unit) {
             Route.Settings -> profile?.let { p ->
                 SettingsScreen(
                     profile = p,
+                    themeMode = themeMode,
+                    onThemeMode = viewModel::setThemeMode,
                     onBack = viewModel::back,
                     encodeAvatar = viewModel::encodeAvatar,
                     onSaveProfile = viewModel::saveProfile,
@@ -75,6 +84,15 @@ fun AtiChatRoot(viewModel: MainViewModel, onExit: () -> Unit) {
                     onClearAllHistory = viewModel::clearAllHistory,
                     onRefreshUsers = viewModel::refreshUsers,
                     onExit = onExit,
+                )
+            }
+
+            Route.SharePicker -> pendingShare?.let { payload ->
+                SharePickerScreen(
+                    payload = payload,
+                    rows = rows,
+                    onPick = { row -> viewModel.sendShared(row.peerId, row.name) },
+                    onCancel = viewModel::back,
                 )
             }
         }

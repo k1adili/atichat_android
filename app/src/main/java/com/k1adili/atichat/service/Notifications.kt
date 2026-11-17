@@ -45,7 +45,7 @@ object Notifications {
         )
         return NotificationCompat.Builder(context, CHANNEL_PRESENCE)
             .setSmallIcon(R.drawable.ic_stat_chat)
-            .setContentTitle("AtiChat برخط است")
+            .setContentTitle("AtiChat آنلاین است")
             .setContentText("کاربران شبکهٔ محلی شما را می‌بینند")
             .setContentIntent(open)
             .addAction(0, "خروج", exit)

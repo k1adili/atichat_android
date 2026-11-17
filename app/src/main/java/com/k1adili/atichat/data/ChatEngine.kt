@@ -7,7 +7,8 @@ import com.k1adili.atichat.core.NetEvent
 import com.k1adili.atichat.core.Peer
 import com.k1adili.atichat.core.Protocol
 import com.k1adili.atichat.util.CertStore
-import com.k1adili.atichat.util.UriFile
+import com.k1adili.atichat.util.ReceivedFiles
+import com.k1adili.atichat.util.Thumbnails
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -191,6 +192,9 @@ class ChatEngine(private val app: Application, db: AppDatabase) {
             val transfer = lan.sendFile(peerId, file.name, file.size) {
                 resolver.openInputStream(file.uri) ?: throw IOException("unreadable file")
             }
+            if (ReceivedFiles.isImage(file.name)) {
+                Thumbnails.create(app, transfer.messageId) { resolver.openInputStream(file.uri) }
+            }
             dao.insertMessage(
                 MessageEntity(
                     messageId = transfer.messageId, kind = "file", senderId = me.userId, senderName = me.displayName,
@@ -212,18 +216,26 @@ class ChatEngine(private val app: Application, db: AppDatabase) {
 
     // ------------------------------------------------------------------------------------------ history
 
-    suspend fun deleteMessage(messageId: String) = withContext(Dispatchers.IO) { dao.deleteMessage(messageId) }
+    suspend fun deleteMessage(messageId: String) = withContext(Dispatchers.IO) {
+        Thumbnails.delete(app, messageId)
+        dao.deleteMessage(messageId)
+    }
 
     suspend fun clearConversation(peerId: String?) = withContext(Dispatchers.IO) {
         if (peerId == null) dao.deletePublic() else dao.deletePrivate(ensureProfile().userId, peerId)
     }
 
-    suspend fun clearAllHistory() = withContext(Dispatchers.IO) { dao.deleteAll() }
+    suspend fun clearAllHistory() = withContext(Dispatchers.IO) {
+        Thumbnails.deleteAll(app)
+        dao.deleteAll()
+    }
 
     fun observeMessages(peerId: String?, me: String) =
         if (peerId == null) dao.observePublic() else dao.observePrivate(me, peerId)
 
     fun observeContacts(me: String) = dao.observeContacts(me)
+
+    fun observeLastMessages(me: String) = dao.observeLastMessages(me)
 
     fun clearUnread(chatKey: String) = _unread.update { it - chatKey }
 
@@ -282,19 +294,25 @@ class ChatEngine(private val app: Application, db: AppDatabase) {
             }
             is NetEvent.FileReceived -> scope.launch {
                 val me = ensureProfile()
+                if (ReceivedFiles.isImage(event.displayName)) {
+                    Thumbnails.create(app, event.messageId) { event.file.inputStream() }
+                }
+                // Public Downloads/AtiChat folder when possible; otherwise the private copy is kept.
+                val storedName = ReceivedFiles.moveToDownloads(app, event.file, event.displayName) ?: event.storedName
                 val inserted = dao.insertMessage(
                     MessageEntity(
                         messageId = event.messageId, kind = "file", senderId = event.userId,
                         senderName = event.username, recipientId = me.userId, recipientName = me.displayName,
-                        body = event.displayName, fileName = event.storedName, timestamp = event.timestamp,
+                        body = event.displayName, fileName = storedName, timestamp = event.timestamp,
                         outgoing = false,
                     ),
                 )
                 if (inserted != -1L) {
-                    onIncoming(event.userId, event.username, "فایلی برایتان فرستاد: ${event.displayName}", event.username)
+                    val what = if (ReceivedFiles.isImage(event.displayName)) "تصویری" else "فایلی"
+                    onIncoming(event.userId, event.username, "$what برایتان فرستاد: ${event.displayName}", event.username)
                     setStatus("فایل ذخیره شد: ${event.displayName}")
                 } else {
-                    File(event.file.path).delete()
+                    event.file.delete()
                 }
             }
         }
@@ -331,6 +349,6 @@ class ChatEngine(private val app: Application, db: AppDatabase) {
     companion object {
         const val PUBLIC_KEY = "public"
         const val DEFAULT_NAME = "کاربر AtiChat"
-        const val OFFLINE_MESSAGE = "این کاربر دیگر برخط نیست."
+        const val OFFLINE_MESSAGE = "این کاربر دیگر آنلاین نیست."
     }
 }
